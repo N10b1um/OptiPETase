@@ -1,0 +1,19 @@
+name: petproject
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - numpy=1.26
+  - matplotlib
+  - conda-forge::openmm
+  - conda-forge::pdbfixer
+  - conda-forge::pdb2pqr
+  - pip:
+    - torch --extra-index-url https://download.pytorch.org/whl/cu121
+    - transformers<4.45
+    - ligandmpnn
+    - safetensors
