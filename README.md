@@ -55,9 +55,27 @@ flowchart TD
 
 ## 📊 Key Results & Visualizations
 
-### 1. Dual-Panel Multi-Objective Discovery & Literature Validation
+### 1. 3D PyMOL Structural Diagnostics & Active Site Mapping
+
+High-resolution ray-traced render showing the evolutionary tolerance landscape and the spatial distribution of Pareto-optimal mutations:
+
+<p align="center">
+  <img src="results/5XJH/plots/5XJH_pareto_selected.png" width="750" alt="PyMOL 3D Structural Diagnostics" />
+</p>
+
+* **Continuous Tolerance Heatmap ($Z$-score):**
+  * 🔵 **Blue ($Z < -1.5$):** Highly rigid, evolutionarily conserved catalytic core.
+  * ⚪ **White ($Z \approx 0$):** Structural transition elements.
+  * 🔴 **Red ($Z > +1.5$):** Flexible, mutation-tolerant surface loops.
+* 🟡 **Yellow Sticks:** Catalytic Triad (`Ser160 - Asp206 - His237`) consolidated in the substrate-binding cleft.
+* 🟢 **Green Sticks & Labels:** Selected Pareto Rank 1 candidate mutations (`K224Y`, `K66S`, `R195S`, `G46S`, `K66A`) located on solvent-accessible surfaces without obstructing the catalytic channel.
+
+---
+
+### 2. Dual-Panel Multi-Objective Discovery & Literature Validation
+
 * **Panel A (De Novo Discovery):** Identifies non-dominated single-point mutations along the Pareto Rank 1 frontier, balancing evolutionary consensus ($\Delta\text{LLR}$) against catalytic triad preservation ($-\Delta\text{Geom}$).
-* **Panel B (Benchmark Validation):** Evaluates engineered thermostable variants from *Nature 2022* (*FAST-PETase*, *Hot-PETase*, *Dura-PETase*), confirming their structural catalytic integrity ($-\Delta\text{Geom} \ge -0.04\text{ \AA}$).
+* **Panel B (Benchmark Validation):** Evaluates engineered thermostable variants from *Nature 2022* (*FAST-PETase*, *Hot-PETase*, *Dura-PETase*), confirming their structural catalytic integrity ($-\Delta\text{Geom} \ge -0.04\text{ Å}$).
 
 <p align="center">
   <img src="results/5XJH/plots/pareto_frontier.png" width="900" alt="Pareto Frontier and Benchmark Validation" />
@@ -65,20 +83,8 @@ flowchart TD
 
 ---
 
-### 2. 3D Mutational Tolerance Surface & Active Site Alignment
-* **Blue ($Z < -1.5$):** Highly conserved catalytic cleft and structural hydrophobic core.
-* **White ($Z \approx 0$):** Semi-rigid structural transition elements.
-* **Red ($Z > +1.5$):** Solvent-exposed, flexible loops tolerant to stabilizing substitutions.
-* **Yellow:** Catalytic Triad (`Ser160 - Asp206 - His237`).
-* **Green:** Selected Pareto-optimal candidate mutations.
-
-<p align="center">
-  <img src="results/5XJH/plots/5XJH_pareto_selected.png" width="600" alt="PyMOL 3D Surface Tolerance" />
-</p>
-
----
-
 ### 3. Mutation Space PCA Embedding
+
 Unsupervised physical-chemical embedding (volume change, hydrophobicity delta, charge change, and 3D spatial coordinates) across evaluated variants:
 
 <p align="center">
