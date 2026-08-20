@@ -115,11 +115,10 @@ Unsupervised physical-chemical embedding (volume change, hydrophobicity delta, c
 We recommend using **Conda** for seamless GPU-enabled OpenMM and PyTorch setup:
 
 ```bash
-# 1. Clone repository
-git clone https://github.com/<your-username>/OptiPETase.git
+#1. clone repository
+git clone https://github.com/N10b1um/OptiPETase.git
 cd OptiPETase
-
-# 2. Create and activate Conda environment
+#2. create and activate conda environment
 conda env create -f environment.yml
 conda activate petproject
 ```
@@ -169,9 +168,9 @@ Outputs will be automatically structured under `results/5XJH/`:
 
 | Parameter | Default | Description |
 | :--- | :---: | :--- |
-| `MODEL_NAME` | `facebook/esm2_t33_650M_UR50D` | Pretrained ESM-2 model checkpoint |
-| `TARGET_PDB` | `5XJH` | Target crystal structure ID |
-| `CATALYTIC_TRIAD_PDB` | `[160, 206, 237]` | Active site triad residue IDs (precursor numbering) |
+| `MODEL_NAME` | `facebook/esm2_t33_650M_UR50D` | Pretrained ESM-2 model checkpoint (650M parameters recommended for optimal zero-shot accuracy).|
+| `TARGET_PDB` | `5XJH` | Target crystal structure ID. You can use any from RCSB database.|
+| `CATALYTIC_TRIAD_PDB` | `[160, 206, 237]` | Active site triad residue IDs |
 | `OXYANION_HOLE_PDB` | `[87, 161]` | Oxyanion hole residue IDs |
 | `PROTONATION_PH` | `7.4` | Physiological pH for hydrogen placement |
 | `FF_FILES_OPENMM` | `['amber14-all.xml', 'implicit/obc2.xml']` | OpenMM force field and implicit solvent model |
@@ -188,4 +187,3 @@ This repository is an *in silico* computational screening framework developed fo
 ## 📜 License
 
 Distributed under the **MIT License**. See `LICENSE` for more information.
-```
