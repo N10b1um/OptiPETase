@@ -122,4 +122,14 @@ class CandidateSelector:
             if len(selected) == self.n_clusters:
                 break
 
+        if len(selected) < self.n_clusters:
+            selected_mut_strs = {c.get("mutation_str") for c in selected}
+            for cand in sorted_candidates:
+                m_str = cand.get("mutation_str")
+                if m_str not in selected_mut_strs:
+                    selected.append(cand)
+                    selected_mut_strs.add(m_str)
+                if len(selected) == self.n_clusters:
+                    break
+
         return selected
