@@ -1,255 +1,261 @@
-import os
-import numpy as np
-import logging
+import json
 from pathlib import Path
-import torch
-import copy
-from typing import List, Dict, Any, Tuple
+from typing import Any
+
+import numpy as np
+from sklearn.decomposition import PCA
+from tqdm import tqdm
 
 from config import CONFIG
-
-from src.models_inference import (
-    ESM2EmbeddingExtractor,
-    LigandMPNNRunner
+from src.benchmark import BenchmarkEvaluator
+from src.biophysics import (
+    calculate_local_packing_density,
+    evaluate_mutant_catalytic_geometry,
+    validate_mutation_safety,
 )
-from src.biophysics import validate_mutation_safety
-from src.selector import CandidateSelector
-from src.visualize import (
-    plot_candidate_clusters_pca,
-    generate_pymol_script
-)
-
+from src.models_inference import ESM2EmbeddingExtractor, LigandMPNNRunner
+from src.pareto import CandidateSelector, compute_pareto_fronts
+from src.preprocess import protonate_structure, relax_structure, repair_pdb
 from src.structure import (
     download_pdb,
+    pairwise_align_wt_pdb,
     parse_pdb_ca_coordinates_and_seq,
-    align_and_map_coordinates,
-    get_active_site_shield,
     save_pdb_with_custom_bfactor,
-    pairwise_align_wt_pdb
+)
+from src.visualize import (
+    generate_pymol_session,
+    plot_candidate_clusters_pca,
+    plot_pareto_frontier,
 )
 
-from src.preprocess import repair_pdb, protonate_structure, relax_structure
 
-logger = logging.getLogger(__name__)
+def run_single_protein_pipeline(
+    pdb_id: str,
+    active_site_triad: list[int],
+    oxyanion_hole: list[int],
+) -> dict[str, Any]:
+    pdb_dir = Path(CONFIG["PDB_DIR"])
+    results_dir = Path(CONFIG["RESULTS_DIR"]) / pdb_id
+    plot_dir = results_dir / "plots"
+    tables_dir = results_dir / "tables"
+    benchmark_dir = Path(CONFIG["BENCHMARK_DIR"])
 
+    pdb_dir.mkdir(parents=True, exist_ok=True)
+    results_dir.mkdir(parents=True, exist_ok=True)
+    plot_dir.mkdir(parents=True, exist_ok=True)
+    tables_dir.mkdir(parents=True, exist_ok=True)
 
-def parse_ligandmpnn_designs(fasta_path: Path) -> List[str]:
-    if not fasta_path.exists():
-        logger.warning(f"LigandMPNN output FASTA file not found at: {fasta_path}")
-        return []
-    
-    sequences = []
-    try:
-        with open(fasta_path, "r", encoding="utf-8") as f:
-            current_seq = []
-            for line in f:
-                line = line.strip()
-                if line.startswith(">"):
-                    if current_seq:
-                        sequences.append("".join(current_seq))
-                        current_seq = []
-                else:
-                    current_seq.append(line)
-            if current_seq:
-                sequences.append("".join(current_seq))
-    except Exception as e:
-        logger.error(f"Error parsing LigandMPNN FASTA file: {e}")
-        return []
-        
-    return sequences
-
-
-def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
+    raw_pdb = download_pdb(pdb_id, output_dir=pdb_dir)
+    repaired_pdb = repair_pdb(
+        input_pdb=raw_pdb,
+        output_pdb=pdb_dir / f"{pdb_id.lower()}_repaired.pdb",
+        mutations=CONFIG["MUTATIONS_FIX"],
+        keep_water=CONFIG["FIX_KEEP_WATER"],
+    )
+    protonated_pdb = protonate_structure(
+        input_pdb=repaired_pdb,
+        output_pdb=pdb_dir / f"{pdb_id.lower()}_protonated.pdb",
+        tmp_pqr=pdb_dir / f"tmp_{pdb_id.lower()}.pqr",
+        ph=CONFIG["PROTONATION_PH"],
+        forcefield=CONFIG["PROTONATION_FF"],
+    )
+    relaxed_pdb = relax_structure(
+        input_pdb=protonated_pdb,
+        output_pdb=pdb_dir / f"{pdb_id.lower()}_relaxed.pdb",
+        ff_files=CONFIG["FF_FILES_OPENMM"],
     )
 
-    os.makedirs(CONFIG['PDB_DIR'], exist_ok=True)
-    os.makedirs(CONFIG['RESULTS_DIR'], exist_ok=True)
-    os.makedirs(CONFIG['PLOT_DIR'], exist_ok=True)
+    coords, wt_seq, pdb_to_idx = parse_pdb_ca_coordinates_and_seq(relaxed_pdb)
+    if coords is None or not wt_seq:
+        raise RuntimeError(f"Failed to parse coordinates for protein {pdb_id}")
 
-    logger.info(f"Downloading target PDB: {CONFIG['TARGET_PDB']}")
-    pdb_path = download_pdb(CONFIG['TARGET_PDB'], CONFIG['PDB_DIR'])
-    
-    repaired_pdb_path = Path(CONFIG['PDB_DIR']) / "repaired.pdb"
-    logger.info(f"Repairing structure -> {repaired_pdb_path}")
-    repaired_pdb_path = repair_pdb(
-        input_pdb=pdb_path,
-        output_pdb=repaired_pdb_path,
-        mutations=CONFIG['MUTATIONS_FIX'],
-        keep_water=CONFIG['FIX_KEEP_WATER']
-    )
-    
-    protonated_pdb_path = Path(CONFIG['PDB_DIR']) / "protonated.pdb"
-    logger.info(f"Protonating structure -> {protonated_pdb_path}")
-    protonated_pdb_path = protonate_structure(
-        input_pdb=repaired_pdb_path,
-        output_pdb=protonated_pdb_path,
-        tmp_pqr=Path(CONFIG['PDB_DIR']) / "tmp_pdb2pqr.pqr",
-        ph=CONFIG['PROTONATION_PH'],
-        forcefield=CONFIG['PROTONATION_FF']
-    )
-    if protonated_pdb_path is None or not protonated_pdb_path.exists():
-        logger.error("Protonation failed. Falling back to repaired structure.")
-        protonated_pdb_path = repaired_pdb_path
-        
-    relaxed_pdb_path = Path(CONFIG['PDB_DIR']) / "relaxed.pdb"
-    logger.info(f"Minimizing energy (relaxation) -> {relaxed_pdb_path}")
-    relax_structure(
-        input_pdb=protonated_pdb_path,
-        output_pdb=relaxed_pdb_path,
-        ff_files=CONFIG['FF_FILES_OPENMM']
-    )
-
-    logger.info("Parsing C-alpha coordinates and residue mapping from relaxed structure...")
-    coords, seq, pdb_to_idx = parse_pdb_ca_coordinates_and_seq(str(relaxed_pdb_path))
-    if coords is None or not seq:
-        raise ValueError("Failed to parse C-alpha coordinates or sequence from the relaxed structure.")
-
+    _, raw_seq, raw_pdb_to_idx = parse_pdb_ca_coordinates_and_seq(raw_pdb)
     idx_to_pdb = {idx: pdb_res for pdb_res, idx in pdb_to_idx.items()}
 
-    logger.info("Generating structural protection shield for active site machinery...")
-    active_site_indices = [
-        pdb_to_idx[res] for res in CONFIG['ACTIVE_SITE_RESIDUES'] if res in pdb_to_idx
-    ]
-    if not active_site_indices:
-        logger.warning("No active site residues matched the PDB sequence. Shield mask will be empty.")
-        
-    shield_mask = get_active_site_shield(
-        coords=coords,
-        active_site_indices=active_site_indices,
-        radius=CONFIG['ACTIVE_SITE_RADIUS']
-    )
-
-    logger.info("Running LigandMPNN for structure-conditioned sequence generation...")
-    mpnn_runner = LigandMPNNRunner(
-        model_type="ligand_mpnn",
-        number_of_batches=1,
-        batch_size=10,
-        temperature=0.1,
-        device="cuda" if torch.cuda.is_available() else "cpu"
-    )
-    
-    if "device" in mpnn_runner.config:
-        del mpnn_runner.config["device"]
-        
-    try:
-        mpnn_runner.generate_candidates(
-            input_pdb=relaxed_pdb_path,
-            out_dir=CONFIG['RESULTS_DIR']
-        )
-    except Exception as e:
-        logger.warning(f"LigandMPNN execution failed (possibly missing executable/PATH): {e}")
-
-    fasta_path = Path(CONFIG['RESULTS_DIR']) / "seqs" / "relaxed.fa"
-    designed_seqs = parse_ligandmpnn_designs(fasta_path)
-    
-    candidate_mutations = set()
-    if len(designed_seqs) > 1:
-        for designed_seq in designed_seqs[1:]:
-            if len(designed_seq) != len(seq):
-                continue
-            for i in range(len(seq)):
-                if designed_seq[i] != seq[i]:
-                    candidate_mutations.add((i, designed_seq[i]))
-        logger.info(f"Extracted {len(candidate_mutations)} unique mutations from LigandMPNN designs.")
+    if raw_seq and raw_pdb_to_idx:
+        raw_to_rel = dict(pairwise_align_wt_pdb(raw_seq, wt_seq))
+        mapped_triad = [
+            idx_to_pdb[raw_to_rel[raw_pdb_to_idx[r]]]
+            for r in active_site_triad
+            if r in raw_pdb_to_idx and raw_pdb_to_idx[r] in raw_to_rel and raw_to_rel[raw_pdb_to_idx[r]] in idx_to_pdb
+        ]
+        mapped_oxyanion = [
+            idx_to_pdb[raw_to_rel[raw_pdb_to_idx[r]]]
+            for r in oxyanion_hole
+            if r in raw_pdb_to_idx and raw_pdb_to_idx[r] in raw_to_rel and raw_to_rel[raw_pdb_to_idx[r]] in idx_to_pdb
+        ]
     else:
-        logger.warning("No LigandMPNN designs found. Falling back to single-point scanning mutagenesis.")
-        for i in range(len(seq)):
-            for mut_aa in ["A", "C", "D", "E", "F", "G", "H", "I", "K", "L", "M", "N", "P", "Q", "R", "S", "T", "V", "W", "Y"]:
-                if mut_aa != seq[i]:
-                    candidate_mutations.add((i, mut_aa))
+        mapped_triad = [r for r in active_site_triad if r in pdb_to_idx]
+        mapped_oxyanion = [r for r in oxyanion_hole if r in pdb_to_idx]
 
-    logger.info(f"Loading evolutionary language model: {CONFIG['MODEL_NAME']}")
-    extractor = ESM2EmbeddingExtractor(
-        model_name=CONFIG['MODEL_NAME'],
-        device="cuda" if torch.cuda.is_available() else "cpu"
+    triad_residues = mapped_triad if mapped_triad else active_site_triad
+    oxyanion_residues = mapped_oxyanion if mapped_oxyanion else oxyanion_hole
+    triad_indices = [pdb_to_idx[r] for r in triad_residues if r in pdb_to_idx]
+    oxyanion_indices = [pdb_to_idx[r] for r in oxyanion_residues if r in pdb_to_idx]
+
+    locked_core_indices = set(triad_indices + oxyanion_indices)
+    packing_density = calculate_local_packing_density(coords)
+
+    extractor = ESM2EmbeddingExtractor(model_name=CONFIG["MODEL_NAME"])
+    features = extractor.extract_features(wt_seq)
+    zero_shot_scores = features["zero_shot_scores"]
+
+    mpnn_runner = LigandMPNNRunner(
+        temperature=CONFIG["TEMPERATURE"],
+        catalytic_triad_pdb_ids=triad_residues,
     )
-    logger.info("Extracting embeddings and zero-shot mutational log-likelihoods...")
-    features_dict = extractor.extract_features(seq)
-    zero_shot_scores = features_dict["zero_shot_scores"]
+    raw_candidates = mpnn_runner.generate_candidates(
+        input_pdb=relaxed_pdb,
+        wt_seq=wt_seq,
+        pdb_to_idx=pdb_to_idx,
+        out_dir=results_dir / "ligandmpnn",
+    )
 
-    candidates = []
-    for pos_idx, mut_aa in candidate_mutations:
-        mut_seq = list(seq)
-        mut_seq[pos_idx] = mut_aa
-        mut_seq = "".join(mut_seq)
-        
-        is_safe, reason = validate_mutation_safety(
-            wt_seq=seq,
+    evaluated_candidates = []
+    for cand in tqdm(raw_candidates, desc=f"Evaluating {pdb_id} candidates"):
+        pos_idx = cand["pos_idx"]
+        mut_aa = cand["mut_aa"]
+
+        fitness_score = float(zero_shot_scores.get(pos_idx, {}).get(mut_aa, 0.0))
+        if fitness_score < 0.0:
+            continue
+
+        mut_seq_list = list(wt_seq)
+        mut_seq_list[pos_idx] = mut_aa
+        mut_seq = "".join(mut_seq_list)
+
+        is_safe, _ = validate_mutation_safety(
+            wt_seq=wt_seq,
             mut_seq=mut_seq,
             pos_idx=pos_idx,
             coords=coords,
-            shield_mask=shield_mask
+            locked_indices=locked_core_indices,
+            packing_density=packing_density,
         )
         if not is_safe:
             continue
-            
-        score = zero_shot_scores[pos_idx].get(mut_aa, -99.0)
-        if score < -4.0:
-            continue
-            
-        candidates.append({
-            "wt_aa": seq[pos_idx],
-            "mut_aa": mut_aa,
-            "pos_idx": pos_idx,
-            "pdb_idx": idx_to_pdb[pos_idx],
-            "predicted_stability": -score
+
+        geom_eval = evaluate_mutant_catalytic_geometry(
+            wt_pdb_path=relaxed_pdb,
+            mutations=[cand["mutation_str"]],
+            ff_files=CONFIG["FF_FILES_OPENMM"],
+            triad_pdb_ids=triad_residues,
+            oxyanion_pdb_ids=oxyanion_residues,
+            ph=CONFIG["PROTONATION_PH"],
+        )
+
+        evaluated_candidates.append({
+            **cand,
+            "esm2_fitness_score": fitness_score,
+            "catalytic_distortion": geom_eval["catalytic_distortion"],
+            "triad_rmsd": geom_eval["triad_rmsd"],
+            "d1_mut": geom_eval["d1_mut"],
+            "d2_mut": geom_eval["d2_mut"],
         })
 
-    if not candidates:
-        raise ValueError("No mutational candidates survived the biophysical and evolutionary filters.")
-    logger.info(f"Total candidates surviving filters: {len(candidates)}")
+    ranked_candidates = compute_pareto_fronts(evaluated_candidates)
+    rank1_candidates = [c for c in ranked_candidates if c.get("pareto_rank") == 1]
 
-    logger.info("Computing sign-corrected evolutionary Importance Map...")
-    importance_map = {}
-    for i in range(len(seq)):
-        scores_at_pos = list(zero_shot_scores[i].values())
-        if scores_at_pos:
-            importance_map[i] = -np.mean(scores_at_pos)
-        else:
-            importance_map[i] = 0.0
-            
-    mapped_pdb_path = Path(CONFIG['RESULTS_DIR']) / "relaxed_importance.pdb"
-    logger.info(f"Writing evolutionary importance map into B-factor column -> {mapped_pdb_path}")
+    selector = CandidateSelector(n_clusters=CONFIG["N_CLUSTERS"], seed=CONFIG["SEED"])
+    top5_selected = selector.select_diverse_top_candidates(rank1_candidates, coords_wt=coords)
+
+    bench_results: list[dict[str, Any]] = []
+    if pdb_id.upper() == "5XJH":
+        evaluator = BenchmarkEvaluator(
+            benchmark_csv_path=benchmark_dir / "nature_variants_activity.csv",
+            wt_pdb_path=relaxed_pdb,
+            model_name=CONFIG["MODEL_NAME"],
+            results_dir=tables_dir,
+        )
+        bench_summary = evaluator.run_evaluation()
+        bench_results = bench_summary["results"]
+
+    pareto_plot_path = plot_dir / "pareto_frontier.png"
+    plot_pareto_frontier(
+        all_candidates=ranked_candidates,
+        pareto_rank_1=rank1_candidates,
+        benchmark_variants=bench_results,
+        selected_top5=top5_selected,
+        save_path=pareto_plot_path,
+    )
+
+    if evaluated_candidates:
+        all_features = selector.extract_mutation_features(evaluated_candidates, coords_wt=coords)
+        if len(all_features) >= 2:
+            pca = PCA(n_components=2, random_state=CONFIG["SEED"])
+            pca_coords = pca.fit_transform(all_features)
+            for i, cand in enumerate(evaluated_candidates):
+                cand["pca_x"] = float(pca_coords[i, 0])
+                cand["pca_y"] = float(pca_coords[i, 1])
+
+            labels = np.array([c.get("pareto_rank", 1) for c in evaluated_candidates])
+            pca_plot_path = plot_dir / "pca_clusters.png"
+            plot_candidate_clusters_pca(
+                all_pca_coords=pca_coords,
+                all_cluster_labels=labels,
+                selected_candidates=top5_selected,
+                save_path=str(pca_plot_path),
+            )
+
+    raw_means = np.array([
+        float(np.mean(list(zero_shot_scores.get(i, {}).values())))
+        for i in range(len(wt_seq))
+    ], dtype=np.float32)
+
+    mean_val = float(np.mean(raw_means))
+    std_val = float(np.std(raw_means)) if np.std(raw_means) > 1e-5 else 1.0
+    z_scores = (raw_means - mean_val) / std_val
+
+    importance_map = {i: float(z_scores[i]) for i in range(len(wt_seq))}
+
+    alignment = pairwise_align_wt_pdb(wt_seq, wt_seq)
+    mapped_pdb_path = results_dir / f"{pdb_id.lower()}_importance.pdb"
     save_pdb_with_custom_bfactor(
-        input_pdb_path=str(relaxed_pdb_path),
-        output_pdb_path=str(mapped_pdb_path),
+        input_pdb_path=relaxed_pdb,
+        output_pdb_path=mapped_pdb_path,
         importance_map=importance_map,
         pdb_to_idx=pdb_to_idx,
-        alignment_mapping=pairwise_align_wt_pdb(seq, seq)
+        alignment_mapping=alignment,
     )
 
-    logger.info("Grouping candidates into physical-chemical diversity niches via K-Means...")
-    selector = CandidateSelector(n_clusters=5, seed=CONFIG['SEED'])
-    selected_candidates, pca_coords, labels = selector.select_diverse_top_candidates(candidates)
-    
-    logger.info("Selected Top Diverse Candidates:")
-    for c in selected_candidates:
-        logger.info(f"  Mutation: {c['wt_aa']}{c['pdb_idx']}{c['mut_aa']} (Cluster: {c['cluster_id']}, stability dDG: {c['predicted_stability']:.3f})")
+    pymol_script_path = results_dir / "visualize_candidates.pml"
+    generate_pymol_session(
+        pdb_id=pdb_id,
+        mapped_pdb_path=mapped_pdb_path,
+        selected_candidates=top5_selected,
+        active_site_residues=triad_residues,
+        output_script_path=pymol_script_path,
+        plot_dir=plot_dir,
+    )
 
-    plot_path = Path(CONFIG['PLOT_DIR']) / "mutation_space_pca.png"
-    logger.info(f"Plotting mutation space PCA projection -> {plot_path}")
-    plot_candidate_clusters_pca(
-        all_pca_coords=pca_coords,
-        all_cluster_labels=labels,
-        selected_candidates=selected_candidates,
-        save_path=str(plot_path)
-    )
-    
-    pml_path = Path(CONFIG['RESULTS_DIR']) / "visualize_candidates.pml"
-    logger.info(f"Generating PyMOL script -> {pml_path}")
-    generate_pymol_script(
-        pdb_id=CONFIG['TARGET_PDB'],
-        mapped_pdb_path=str(mapped_pdb_path),
-        selected_candidates=selected_candidates,
-        active_site_residues=CONFIG['ACTIVE_SITE_RESIDUES'],
-        output_script_path=str(pml_path)
-    )
-    
-    logger.info("Pipeline executed successfully!")
+    candidates_json_path = results_dir / "top_candidates.json"
+    with open(str(candidates_json_path), "w", encoding="utf-8") as f:
+        json.dump(top5_selected, f, indent=2)
+
+    return {
+        "pdb_id": pdb_id,
+        "selected_candidates": top5_selected,
+        "plot_path": str(pareto_plot_path),
+        "pymol_script_path": str(pymol_script_path),
+        "mapped_pdb_path": str(mapped_pdb_path),
+    }
+
+
+def main() -> None:
+    targets = [
+        {
+            "pdb_id": "5XJH",
+            "active_site_triad": [160, 206, 237],
+            "oxyanion_hole": [87, 161],
+        }
+    ]
+
+    for target in targets:
+        run_single_protein_pipeline(
+            pdb_id=target["pdb_id"],
+            active_site_triad=target["active_site_triad"],
+            oxyanion_hole=target["oxyanion_hole"],
+        )
 
 
 if __name__ == "__main__":

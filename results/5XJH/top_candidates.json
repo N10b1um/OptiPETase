@@ -1,0 +1,32 @@
+[
+  {
+    "pos_idx": 65,
+    "pdb_idx": 66,
+    "wt_aa": "K",
+    "mut_aa": "S",
+    "mutation_str": "K66S",
+    "esm2_fitness_score": 2.692251682281494,
+    "catalytic_distortion": 0.0038548823118623845,
+    "triad_rmsd": 0.0028809888754040003,
+    "d1_mut": 2.934995174407959,
+    "d2_mut": 2.798107862472534,
+    "pareto_rank": 1,
+    "pca_x": -0.28970956802368164,
+    "pca_y": -0.7788724303245544
+  },
+  {
+    "pos_idx": 194,
+    "pdb_idx": 195,
+    "wt_aa": "R",
+    "mut_aa": "S",
+    "mutation_str": "R195S",
+    "esm2_fitness_score": 1.5518522262573242,
+    "catalytic_distortion": 0.0016522728556726237,
+    "triad_rmsd": 0.00108396727591753,
+    "d1_mut": 2.9364123344421387,
+    "d2_mut": 2.7975072860717773,
+    "pareto_rank": 1,
+    "pca_x": -0.39031675457954407,
+    "pca_y": -0.7566730380058289
+  }
+]
