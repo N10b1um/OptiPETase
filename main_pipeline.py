@@ -157,7 +157,7 @@ def run_single_protein_pipeline(
     rank1_candidates = [c for c in ranked_candidates if c.get("pareto_rank") == 1]
 
     selector = CandidateSelector(n_clusters=CONFIG["N_CLUSTERS"], seed=CONFIG["SEED"])
-    top5_selected = selector.select_diverse_top_candidates(rank1_candidates, coords_wt=coords)
+    top5_selected = selector.select_diverse_top_candidates(ranked_candidates, coords_wt=coords)
 
     bench_results: list[dict[str, Any]] = []
     if pdb_id.upper() == "5XJH":

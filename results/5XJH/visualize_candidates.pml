@@ -9,22 +9,22 @@ select mut_66, 5XJH and resi 66
 show sticks, mut_66
 color green, mut_66
 label (mut_66 and name CA), "K66S"
+select mut_233, 5XJH and resi 233
+show sticks, mut_233
+color green, mut_233
+label (mut_233 and name CA), "M233V"
 select mut_195, 5XJH and resi 195
 show sticks, mut_195
 color green, mut_195
-label (mut_195 and name CA), "R195S"
-select mut_4, 5XJH and resi 4
-show sticks, mut_4
-color green, mut_4
-label (mut_4 and name CA), "M4A"
+label (mut_195 and name CA), "R195G"
 select mut_224, 5XJH and resi 224
 show sticks, mut_224
 color green, mut_224
-label (mut_224 and name CA), "K224T"
-select mut_66, 5XJH and resi 66
-show sticks, mut_66
-color green, mut_66
-label (mut_66 and name CA), "K66G"
+label (mut_224 and name CA), "K224Y"
+select mut_36, 5XJH and resi 36
+show sticks, mut_36
+color green, mut_36
+label (mut_36 and name CA), "A36G"
 bg_color white
 set ray_shadow, 1
 set label_color, black

@@ -4,6 +4,7 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.stats import spearmanr
 
 
 def plot_pareto_frontier(
@@ -21,23 +22,48 @@ def plot_pareto_frontier(
     if all_candidates:
         x_all = [c.get("esm2_fitness_score", 0.0) for c in all_candidates]
         y_all = [-c.get("catalytic_distortion", 0.0) for c in all_candidates]
-        ax1.scatter(x_all, y_all, c="lightgray", alpha=0.6, s=30, label="Candidate Pool", edgecolors="none")
+        ax1.scatter(
+            x_all,
+            y_all,
+            c="#cbd5e1",
+            alpha=0.6,
+            s=35,
+            label="Candidate Pool",
+            edgecolors="none",
+        )
 
     if pareto_rank_1:
         sorted_rank1 = sorted(pareto_rank_1, key=lambda c: c.get("esm2_fitness_score", 0.0))
         x_p1 = [c.get("esm2_fitness_score", 0.0) for c in sorted_rank1]
         y_p1 = [-c.get("catalytic_distortion", 0.0) for c in sorted_rank1]
-        ax1.plot(x_p1, y_p1, color="red", linestyle="--", linewidth=1.5, zorder=3)
-        ax1.scatter(x_p1, y_p1, color="red", s=50, label="Pareto Frontier (Rank 1)", zorder=4)
+        ax1.plot(x_p1, y_p1, color="#ef4444", linestyle="--", linewidth=2.0, zorder=3)
+        ax1.scatter(x_p1, y_p1, color="#ef4444", s=55, label="Pareto Frontier (Rank 1)", zorder=4)
 
     if selected_top5:
-        offsets = [(0, 12), (0, -16), (12, 10), (-12, 10), (0, 14)]
-        for idx, cand in enumerate(selected_top5):
+        sorted_selected = sorted(selected_top5, key=lambda c: c.get("esm2_fitness_score", 0.0))
+        offsets = [(0, 14), (0, -22), (14, 12), (-14, -18), (0, 14)]
+
+        for idx, cand in enumerate(sorted_selected):
             x_s = cand.get("esm2_fitness_score", 0.0)
             y_s = -cand.get("catalytic_distortion", 0.0)
-            label_name = cand.get("mutation_str", f"M{idx+1}")
-            ax1.scatter(x_s, y_s, marker="o", color="cyan", edgecolors="darkblue", s=140, zorder=7, label="Selected Top Diverse" if idx == 0 else "")
             
+            wt = cand.get("wt_aa", "")
+            pos = cand.get("pdb_idx", "")
+            mut = cand.get("mut_aa", "")
+            label_name = cand.get("mutation_str") or f"{wt}{pos}{mut}"
+
+            ax1.scatter(
+                x_s,
+                y_s,
+                marker="o",
+                color="#06b6d4",
+                edgecolors="#083344",
+                linewidth=1.5,
+                s=150,
+                zorder=7,
+                label="Selected Top Diverse" if idx == 0 else "",
+            )
+
             offset = offsets[idx % len(offsets)]
             ax1.annotate(
                 label_name,
@@ -47,56 +73,111 @@ def plot_pareto_frontier(
                 ha="center",
                 fontsize=9,
                 fontweight="bold",
-                bbox={"boxstyle": "round,pad=0.2", "fc": "white", "alpha": 0.9, "ec": "darkblue", "lw": 0.7},
+                bbox={
+                    "boxstyle": "round,pad=0.25",
+                    "fc": "white",
+                    "alpha": 0.95,
+                    "ec": "#083344",
+                    "lw": 0.8,
+                },
                 zorder=8,
             )
 
-    ax1.set_xlim(-0.2, max([c.get("esm2_fitness_score", 0.0) for c in all_candidates] + [3.0]) + 0.3)
-    min_geom = min([-c.get("catalytic_distortion", 0.0) for c in all_candidates] + [-0.04])
-    ax1.set_ylim(min_geom - 0.005, 0.002)
+    x_max = max([c.get("esm2_fitness_score", 0.0) for c in all_candidates] + [3.0])
+    ax1.set_xlim(-0.2, x_max + 0.3)
+    ax1.set_ylim(-0.045, 0.015)
 
     ax1.text(
-        0.03, 0.06,
-        "Catalytic Dead Controls (S160A, D206A, H237A)\npenalized at -10.0 distortion (off-scale)",
+        0.03,
+        0.05,
+        "Disruptive outliers (ΔGeom > 0.05 Å) & lethal controls\n(S160A, D206A, H237A at -10.0 Å) penalized off-scale",
         transform=ax1.transAxes,
-        fontsize=8,
+        fontsize=8.5,
         fontstyle="italic",
-        bbox={"boxstyle": "round,pad=0.3", "fc": "whitesmoke", "alpha": 0.9, "ec": "gray", "lw": 0.5},
+        bbox={"boxstyle": "round,pad=0.35", "fc": "#f8fafc", "alpha": 0.9, "ec": "#94a3b8", "lw": 0.6},
         zorder=5,
     )
 
     ax1.set_xlabel("Evolutionary Fitness Score (ESM-2 $\\Delta$LLR)", fontsize=11, fontweight="bold")
-    ax1.set_ylabel("Catalytic Geometry Integrity ($-\\Delta$Geom)", fontsize=11, fontweight="bold")
-    ax1.set_title("A. De Novo Mutation Discovery (Pareto Frontier)", fontsize=12, fontweight="bold")
+    ax1.set_ylabel("Catalytic Geometry Integrity ($-\\Delta$Geom, $\\AA$)", fontsize=11, fontweight="bold")
+    ax1.set_title("A. De Novo Mutation Discovery (Pareto Frontier)", fontsize=12, fontweight="bold", pad=12)
     ax1.grid(True, linestyle="--", alpha=0.4)
-    ax1.legend(loc="lower right", frameon=True, fontsize=8)
+    ax1.legend(loc="lower right", frameon=True, fontsize=8.5)
 
     if benchmark_variants:
-        nature_vars = [b for b in benchmark_variants if b.get("variant_name") not in ["S160A", "H237A", "D206A"]]
+        nature_vars = [
+            b for b in benchmark_variants if b.get("variant_name") not in ["S160A", "H237A", "D206A"]
+        ]
         if nature_vars:
-            x_b = [b.get("activity_50C", 0.0) for b in nature_vars]
-            y_b = [-b.get("catalytic_distortion", 0.0) for b in nature_vars]
+            x_b = np.array([b.get("activity_50C", 0.0) for b in nature_vars], dtype=np.float32)
+            y_b = np.array([b.get("esm2_fitness_score", 0.0) for b in nature_vars], dtype=np.float32)
             names = [b.get("variant_name", "") for b in nature_vars]
 
-            ax2.scatter(x_b, y_b, marker="*", color="gold", edgecolors="black", s=250, zorder=5, label="Engineered Benchmarks")
+            if len(x_b) > 1:
+                slope, intercept = np.polyfit(x_b, y_b, 1)
+                x_line = np.linspace(min(x_b) - 0.1, max(x_b) + 0.1, 100)
+                y_line = slope * x_line + intercept
+                ax2.plot(x_line, y_line, color="#3b82f6", linestyle="--", linewidth=1.5, alpha=0.8, zorder=2)
+
+                rho_res = spearmanr(y_b, x_b)
+                rho_val = float(rho_res.statistic) if hasattr(rho_res, "statistic") else float(rho_res[0])
+                p_val = float(rho_res.pvalue) if hasattr(rho_res, "pvalue") else float(rho_res[1])
+
+                insight_text = (
+                    f"Spearman $\\rho = {rho_val:.2f}$ ($p = {p_val:.3e}$)\n"
+                    r"$\bf{Additive\ Zero\text{-}Shot\ Limitation:}$" "\n"
+                    "Single-point models evaluate substitutions independently.\n"
+                    "Engineered salt bridges (e.g. S121E ↔ N233K in FAST-PETase)\n"
+                    "receive cumulative penalties despite high combined activity."
+                )
+                ax2.text(
+                    0.48,
+                    0.72,
+                    insight_text,
+                    transform=ax2.transAxes,
+                    fontsize=8.5,
+                    bbox={"boxstyle": "round,pad=0.4", "fc": "#fef2f2", "alpha": 0.95, "ec": "#ef4444", "lw": 0.8},
+                    zorder=7,
+                )
+
+            ax2.scatter(
+                x_b,
+                y_b,
+                marker="*",
+                color="#eab308",
+                edgecolors="#713f12",
+                linewidth=1.2,
+                s=240,
+                zorder=5,
+                label="Engineered Variants (Nature 2022)",
+            )
+
+            b_offsets = [(0, 10), (0, -18), (10, 10), (-14, -16), (0, 12), (0, -18), (-12, 10), (10, -14)]
             for i, name in enumerate(names):
+                offset = b_offsets[i % len(b_offsets)]
                 ax2.annotate(
                     name,
                     (x_b[i], y_b[i]),
                     textcoords="offset points",
-                    xytext=(0, 10),
+                    xytext=offset,
                     ha="center",
                     fontsize=8,
                     fontweight="bold",
-                    bbox={"boxstyle": "round,pad=0.2", "fc": "white", "alpha": 0.8, "ec": "gray", "lw": 0.5},
+                    bbox={
+                        "boxstyle": "round,pad=0.2",
+                        "fc": "white",
+                        "alpha": 0.9,
+                        "ec": "#94a3b8",
+                        "lw": 0.5,
+                    },
                     zorder=6,
                 )
 
             ax2.set_xlabel("Experimental Activity at 50°C (Rel. to WT)", fontsize=11, fontweight="bold")
-            ax2.set_ylabel("Catalytic Geometry Integrity ($-\\Delta$Geom)", fontsize=11, fontweight="bold")
-            ax2.set_title("B. Nature 2022 Benchmarks vs. Structural Integrity", fontsize=12, fontweight="bold")
+            ax2.set_ylabel("Predicted Evolutionary Fitness (Additive ESM-2 $\\Delta$LLR)", fontsize=11, fontweight="bold")
+            ax2.set_title("B. Epistasis Bottleneck: Zero-Shot ESM-2 on Multi-Mutants", fontsize=12, fontweight="bold", pad=12)
             ax2.grid(True, linestyle="--", alpha=0.4)
-            ax2.legend(loc="lower left", frameon=True, fontsize=8)
+            ax2.legend(loc="lower left", frameon=True, fontsize=8.5)
 
     plt.tight_layout()
     plt.savefig(str(save_p), dpi=300)
@@ -115,7 +196,7 @@ def generate_pymol_session(
     out_p.parent.mkdir(parents=True, exist_ok=True)
     plot_p = Path(plot_dir)
     plot_p.parent.mkdir(parents=True, exist_ok=True)
-    
+
     png_cartoon_path = plot_p / f"{pdb_id}_pareto_selected.png"
     png_surface_path = plot_p / f"{pdb_id}_pareto_selected_surface.png"
 
