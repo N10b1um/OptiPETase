@@ -115,7 +115,9 @@ def generate_pymol_session(
     out_p.parent.mkdir(parents=True, exist_ok=True)
     plot_p = Path(plot_dir)
     plot_p.parent.mkdir(parents=True, exist_ok=True)
-    png_out_path = plot_p / f"{pdb_id}_pareto_selected.png"
+    
+    png_cartoon_path = plot_p / f"{pdb_id}_pareto_selected.png"
+    png_surface_path = plot_p / f"{pdb_id}_pareto_selected_surface.png"
 
     commands: list[str] = [
         f"load {mapped_pdb_path!s}, {pdb_id}",
@@ -152,12 +154,14 @@ def generate_pymol_session(
         "set label_color, black",
         "set label_size, 14",
         f"zoom {pdb_id}",
-        f"png {png_out_path!s}, width=1600, height=1200, dpi=300, ray=1",
+        f"png {png_cartoon_path!s}, width=1600, height=1200, dpi=300, ray=1",
+        f"show surface, {pdb_id}",
+        "set transparency, 0.35",
+        f"png {png_surface_path!s}, width=1600, height=1200, dpi=300, ray=1",
     ])
 
     with open(str(out_p), "w", encoding="utf-8") as f:
         f.writelines(f"{command}\n" for command in commands)
-
 
 def generate_pymol_script(
     pdb_id: str,

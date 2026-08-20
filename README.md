@@ -55,12 +55,13 @@ flowchart TD
 
 ## 📊 Key Results & Visualizations
 
-### 1. 3D PyMOL Structural Diagnostics & Active Site Mapping
+### 1. 3D PyMOL Structural Diagnostics & Surface Mapping
 
-High-resolution ray-traced render showing the evolutionary tolerance landscape and the spatial distribution of Pareto-optimal mutations:
+High-resolution ray-traced renders comparing the backbone evolutionary tolerance landscape (**Cartoon**, left) against the solvent-accessible substrate binding cleft (**Surface**, right):
 
 <p align="center">
-  <img src="results/5XJH/plots/5XJH_pareto_selected.png" width="750" alt="PyMOL 3D Structural Diagnostics" />
+  <img src="results/5XJH/plots/5XJH_pareto_selected.png" width="49%" alt="Cartoon Representation" />
+  <img src="results/5XJH/plots/5XJH_pareto_selected_surface.png" width="49%" alt="Surface Representation" />
 </p>
 
 * **Continuous Tolerance Heatmap ($Z$-score):**
@@ -68,7 +69,7 @@ High-resolution ray-traced render showing the evolutionary tolerance landscape a
   * ⚪ **White ($Z \approx 0$):** Structural transition elements.
   * 🔴 **Red ($Z > +1.5$):** Flexible, mutation-tolerant surface loops.
 * 🟡 **Yellow Sticks:** Catalytic Triad (`Ser160 - Asp206 - His237`) consolidated in the substrate-binding cleft.
-* 🟢 **Green Sticks & Labels:** Selected Pareto Rank 1 candidate mutations (`K224Y`, `K66S`, `R195S`, `G46S`, `K66A`) located on solvent-accessible surfaces without obstructing the catalytic channel.
+* 🟢 **Green Sticks & Labels:** Selected Pareto Rank 1 candidate mutations located on solvent-accessible surfaces without obstructing the catalytic channel.
 
 ---
 

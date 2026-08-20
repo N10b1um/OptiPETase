@@ -65,5 +65,4 @@ venv.bak/
 # Project-specific outputs & temporary files
 *.log
 *.pqr
-*.pml
 tmp_*
